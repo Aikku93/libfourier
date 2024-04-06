@@ -79,8 +79,6 @@ $(LIBFILE) : $(OBJFILES) | $(RELDIR)
 	@echo Building library file $@...
 	@$(AR) rcs $@ $^
 
-$(OBJFILES) : $(SRCFILES) | $(OBJDIR)
-
 #----------------------------#
 # x86-specific rules
 #----------------------------#
