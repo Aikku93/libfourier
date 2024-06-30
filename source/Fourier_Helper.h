@@ -78,6 +78,12 @@
 	*Lo = _mm256_permute2f128_ps(t0, t1, 0x20);
 	*Hi = _mm256_permute2f128_ps(t0, t1, 0x31);
   }
+  FOURIER_FORCE_INLINE void FOURIER_VINTERLEAVECPLX(Fourier_Vec_t a, Fourier_Vec_t b, Fourier_Vec_t *Lo, Fourier_Vec_t *Hi) {
+	__m256 t0 = _mm256_shuffle_ps(a, b, 0x44);
+	__m256 t1 = _mm256_shuffle_ps(a, b, 0xEE);
+	*Lo = _mm256_permute2f128_ps(t0, t1, 0x20);
+	*Hi = _mm256_permute2f128_ps(t0, t1, 0x31);
+  }
   FOURIER_FORCE_INLINE void FOURIER_VSPLIT_EVEN_ODD(Fourier_Vec_t l, Fourier_Vec_t h, Fourier_Vec_t *Even, Fourier_Vec_t *Odd) {
 	__m256 a = _mm256_permute2f128_ps(l, h, 0x20);
 	__m256 b = _mm256_permute2f128_ps(l, h, 0x31);
@@ -90,6 +96,16 @@
 	*Even = _mm256_shuffle_ps(a, b, 0x88);
 	b     = _mm256_shuffle_ps(b, a, 0x77);
 	*Odd  = _mm256_permute2f128_ps(b, b, 0x01);
+  }
+  FOURIER_FORCE_INLINE void FOURIER_VSPLITCPLX_EVEN_ODD(Fourier_Vec_t l, Fourier_Vec_t h, Fourier_Vec_t *Even, Fourier_Vec_t *Odd) {
+	__m256 a = _mm256_permute2f128_ps(l, h, 0x20);
+	__m256 b = _mm256_permute2f128_ps(l, h, 0x31);
+	*Even = _mm256_shuffle_ps(a, b, 0x44);
+	*Odd  = _mm256_shuffle_ps(a, b, 0xEE);
+  }
+  FOURIER_FORCE_INLINE void FOURIER_VEXPANDCPLX(Fourier_Vec_t a, Fourier_Vec_t *Lo, Fourier_Vec_t *Hi) {
+	*Lo = _mm256_shuffle_ps(a, a, 0xA0);
+	*Hi = _mm256_shuffle_ps(a, a, 0xF5);
   }
 #elif (defined(FOURIER_IS_X86) && defined(__SSE__) && defined(FOURIER_ALLOW_SSE))
   typedef __m128 Fourier_Vec_t;
@@ -127,6 +143,10 @@
 	*Lo = _mm_unpacklo_ps(a, b);
 	*Hi = _mm_unpackhi_ps(a, b);
   }
+  FOURIER_FORCE_INLINE void FOURIER_VINTERLEAVECPLX(Fourier_Vec_t a, Fourier_Vec_t b, Fourier_Vec_t *Lo, Fourier_Vec_t *Hi) {
+	*Lo = _mm_shuffle_ps(a, b, 0x44);
+	*Hi = _mm_shuffle_ps(a, b, 0xEE);
+  }
   FOURIER_FORCE_INLINE void FOURIER_VSPLIT_EVEN_ODD(Fourier_Vec_t l, Fourier_Vec_t h, Fourier_Vec_t *Even, Fourier_Vec_t *Odd) {
 	*Even = _mm_shuffle_ps(l, h, 0x88);
 	*Odd  = _mm_shuffle_ps(l, h, 0xDD);
@@ -134,6 +154,14 @@
   FOURIER_FORCE_INLINE void FOURIER_VSPLIT_EVEN_ODDREV(Fourier_Vec_t l, Fourier_Vec_t h, Fourier_Vec_t *Even, Fourier_Vec_t *Odd) {
 	*Even = _mm_shuffle_ps(l, h, 0x88);
 	*Odd  = _mm_shuffle_ps(h, l, 0x77);
+  }
+  FOURIER_FORCE_INLINE void FOURIER_VSPLITCPLX_EVEN_ODD(Fourier_Vec_t l, Fourier_Vec_t h, Fourier_Vec_t *Even, Fourier_Vec_t *Odd) {
+	*Even = _mm_shuffle_ps(l, h, 0x44);
+	*Odd  = _mm_shuffle_ps(l, h, 0xEE);
+  }
+  FOURIER_FORCE_INLINE void FOURIER_VEXPANDCPLX(Fourier_Vec_t a, Fourier_Vec_t *Lo, Fourier_Vec_t *Hi) {
+	*Lo = _mm_shuffle_ps(a, a, 0xA0);
+	*Hi = _mm_shuffle_ps(a, a, 0xF5);
   }
 #else
   typedef float Fourier_Vec_t;
@@ -213,28 +241,65 @@ void *Fourier_GetDispatchFnc(const struct Fourier_FuncTbl_t *FuncTbl) {
 
 /************************************************/
 
-// Sin[z] approximation (where z = x*Pi/2, x < Pi/2)
-// Coefficients derived by RMSE minimization
+// Sin[z] approximation (where |z| = x*Pi/2, x < Pi)
+// The DCT routines only need to reach x = Pi/2, but the FFT
+// routines need to reach up to Pi, so we spend a bit more
+// computation to get there.
+// Computation of coefficients in Mathematica:
+/*
+  f[x_] := Sin[x*Pi/2];
+  g[x_] := x*(a0 + a1*x^2 + a2*x^4 + a3*x^6 + a4*x^8 + a5*x^10);
+  NMinimize[
+     {
+       Integrate[(f[x] - g[x])^2, {x, 0, 2}],
+       f[0] == g[0],
+       f[1] == g[1],
+       f[2] == g[2]
+     },
+     {a0, a1, a2, a3, a4, a5},
+     WorkingPrecision -> 50
+  ]
+*/
 FOURIER_FORCE_INLINE
 Fourier_Vec_t Fourier_Sin(Fourier_Vec_t x) {
 	Fourier_Vec_t x2  = FOURIER_VMUL(x, x);
-	Fourier_Vec_t Res = FOURIER_VFMA(x2, FOURIER_VSET1(+0x1.3C8B08p-13f), FOURIER_VSET1(-0x1.3237ECp-8f));
-	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(+0x1.4667ACp-4f));
-	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(-0x1.4ABBB8p-1f));
-	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(+0x1.921FB4p0f));
+	Fourier_Vec_t Res = FOURIER_VFMA(x2, FOURIER_VSET1(-0x1.8964F4p-19f), FOURIER_VSET1(+0x1.49C03Ap-13f));
+	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(-0x1.3254A4p-8f));
+	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(+0x1.4662A4p-4f));
+	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(-0x1.4ABB3Ap-1f));
+	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(+0x1.921FAAp0f));
 	return FOURIER_VMUL(x, Res);
 }
 
 /************************************************/
 
-// Cos[z] approximation (where z = x*Pi/2, x < Pi/2)
-// Coefficients derived by RMSE minimization
+// Cos[z] approximation (where |z| = x*Pi/2, x < Pi)
+// The DCT routines only need to reach x = Pi/2, but the FFT
+// routines need to reach up to Pi, so we spend a bit more
+// computation to get there.
+// Computation of coefficients in Mathematica:
+/*
+  f[x_] := Cos[x*Pi/2];
+  g[x_] := 1 + a1*x^2 + a2*x^4 + a3*x^6 + a4*x^8 + a5*x^10;
+  NMinimize[
+     {
+       Integrate[(f[x] - g[x])^2, {x, 0, 2}],
+       f[0] == g[0],
+       f[1] == g[1],
+       f[2] == g[2]
+     },
+     {a1, a2, a3, a4, a5},
+     WorkingPrecision -> 50
+  ]
+*/
 FOURIER_FORCE_INLINE
 Fourier_Vec_t Fourier_Cos(Fourier_Vec_t x) {
 	Fourier_Vec_t x2  = FOURIER_VMUL(x, x);
-	Fourier_Vec_t Res = FOURIER_VFMA(x2, FOURIER_VSET1(+0x1.C2EA62p-11f), FOURIER_VSET1(-0x1.550810p-6f));
-	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(+0x1.03BDD6p-2f));
-	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(-0x1.3BD3B2p0f));
+	Fourier_Vec_t Res = FOURIER_VFMA(x2, FOURIER_VSET1(+0x1.A45374p-22f), FOURIER_VSET1(-0x1.9FF6B8p-16f));
+	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(+0x1.E16944p-11f));
+	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(-0x1.55CE28p-6f));
+	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(+0x1.03C1BCp-2f));
+	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(-0x1.3BD3CAp0f));
 	              Res = FOURIER_VFMA(x2, Res, FOURIER_VSET1(1.0f));
 	return Res;
 }
@@ -242,6 +307,8 @@ Fourier_Vec_t Fourier_Cos(Fourier_Vec_t x) {
 /************************************************/
 
 // End-condition routines
+void Fourier_FFT_4 (float *x); // 4-point complex FFT
+void Fourier_iFFT_4(float *x); // 4-point complex iFFT
 void Fourier_DCT2_8(float *x); // 8-point DCT-II
 void Fourier_DCT4_8(float *x); // 8-point DCT-IV
 
