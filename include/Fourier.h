@@ -28,6 +28,30 @@ extern "C" {
 void Fourier_DCT2(float *Buf, float *Tmp, int N);
 void Fourier_DCT4(float *Buf, float *Tmp, int N);
 
+// FFT/iFFT (scaled)
+// Arguments:
+//  Buf[N] (complex)
+//  Tmp[N] (complex)
+// Implemented transform (matrix form):
+//  MtxFFT  = Table[E^(-I*2Pi*(n-1)*(k-1)/N), {k,N}, {n,N}]
+//  MtxiFFT = Table[E^(+I*2Pi*(n-1)*(k-1)/N), {k,N}, {n,N}]
+// Notes:
+//  -N must be a power of two, and >= 4 for complex FFT/iFFT.
+//  -For real FFT/iFFT, N must be a power of two, and >= 8.
+//  -The real-input FFT takes in N real values, and creates
+//   N/2 complex values as output, with Buf[0] containing
+//   DC in the real part, and Nyquist in the imaginary.
+//   The real-output iFFT takes N/2 complex values (using the
+//   same format that the real FFT routine outputs), and
+//   outputs N real values.
+//  -The real-input FFT/iFFT routines have a processing step
+//   that has not been vectorized yet. This should not be an
+//   issue in practice, though.
+void Fourier_FFT   (float *Buf, float *Tmp, int N); // Buf[N*2], Tmp[N*2]
+void Fourier_iFFT  (float *Buf, float *Tmp, int N); // Buf[N*2], Tmp[N*2]
+void Fourier_FFTRe (float *Buf, float *Tmp, int N); // Buf[N], Tmp[N]
+void Fourier_iFFTRe(float *Buf, float *Tmp, int N); // Buf[N], Tmp[N]
+
 // Centered FFT/iFFT (scaled)
 // Arguments:
 //  Buf[N]
