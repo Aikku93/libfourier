@@ -20,7 +20,7 @@ ifeq ($(strip $(ARCHFLAGS)),)
 	ARCHFLAGS :=
 endif
 
-CCFLAGS := $(ARCHFLAGS) -O2 -Wall -Wextra $(foreach dir, $(INCDIR), -I$(dir))
+CCFLAGS := $(ARCHFLAGS) -O2 -Wall -Wextra -ffunction-sections -fdata-sections $(foreach dir, $(INCDIR), -I$(dir))
 
 #----------------------------#
 # Tools
